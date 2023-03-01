@@ -172,7 +172,6 @@ jobs:
               --output text)
             echo $BACKEND_IP >> .circleci/ansible/inventory.txt
             cat .circleci/ansible/inventory.txt
-            exit 1
       - persist_to_workspace:
           root: ~/
           paths:
