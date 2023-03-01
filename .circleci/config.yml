@@ -1,5 +1,38 @@
 version: 2.1
 
+orbs:
+  slack: circleci/slack@4.12.1
+
+commands:
+  notify-slack:
+    description: Notify Slack when a job fails.
+    steps:
+      - slack/notify:
+          channel: $SLACK_DEFAULT_CHANNEL
+          event: fail
+          template: basic_fail_1
+            
+  destroy-environment:
+    description: Destroy back-end and front-end cloudformation stacks given a workflow ID.
+    parameters:
+      id:
+        default: ${CIRCLE_WORKFLOW_ID:0:7}
+        type: string  
+    steps:
+      - run:
+          name: Destroy backend environments
+          when: on_fail
+          command: |
+            aws cloudformation delete-stack --stack-name udapeople-backend-<<parameters.id>>
+      - run:
+          name: Destroy frontend environments
+          when: on_fail
+          command: |
+            # Empty frontend bucket
+            aws s3 rm s3://udapeople-<<parameters.id>> --recursive
+            # Delete frontend stack
+            aws cloudformation delete-stack --stack-name udapeople-frontend-<<parameters.id>>
+
 jobs:
   build-frontend:
     docker:
@@ -17,6 +50,7 @@ jobs:
       - save_cache:
           paths: [frontend/node_modules]
           key: frontend-build
+      - notify-slack
 
   build-backend:
     docker:
@@ -34,6 +68,7 @@ jobs:
       - save_cache:
           paths: [backend/node_modules]
           key: backend-build
+      - notify-slack
 
   test-frontend:
     docker:
@@ -50,6 +85,7 @@ jobs:
             cd frontend
             npm install
             npm run test
+      - notify-slack
 
   test-backend:
     docker:
@@ -66,7 +102,8 @@ jobs:
             cd backend
             npm install
             npm run test
-            
+      - notify-slack
+
   scan-frontend:
     docker:
       - image: circleci/node:13.8.0
@@ -81,7 +118,8 @@ jobs:
           command: |
             cd frontend
             npm install
-            npm audit --audit-level=critical
+            npm audit fix --audit-level=critical
+      - notify-slack
 
   scan-backend:
     docker:
@@ -97,18 +135,74 @@ jobs:
           command: |
             cd backend
             npm install
-            npm audit --audit-level=critical
+            npm audit fix --audit-level=critical
+      - notify-slack
+      
+  deploy-infrastructure:
+    docker:
+      - image: amazon/aws-cli
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            yum -y install tar gzip
+      - run:
+          name: Ensure back-end infrastructure exists
+          command: |
+            aws cloudformation deploy \
+              --template-file .circleci/files/backend.yml \
+              --tags project=udapeople \
+              --stack-name "udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
+              --parameter-overrides ID="${CIRCLE_WORKFLOW_ID:0:7}"
+      - run:
+          name: Ensure front-end infrastructure exist
+          command: |
+            aws cloudformation deploy \
+              --template-file .circleci/files/frontend.yml \
+              --tags project=udapeople \
+              --stack-name "udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
+              --parameter-overrides ID="${CIRCLE_WORKFLOW_ID:0:7}"
+      - run:
+          name: Add back-end ip to ansible inventory
+          command: |
+            BACKEND_IP=$(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=backend-${CIRCLE_WORKFLOW_ID:0:5}" \
+              --query 'Reservations[*].Instances[*].PublicDnsName' \
+              --output text)
+            echo $BACKEND_IP >> .circleci/ansible/inventory.txt
+            cat .circleci/ansible/inventory.txt
+            exit 1
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - project/.circleci/ansible/inventory.txt
+      - destroy-environment
+      - notify-slack
+
 
 workflows:
   default:
     jobs:
       - build-frontend
+          context: slack
       - build-backend
+          context: slack
       - test-frontend:
           requires: [build-frontend]
+          context: slack
       - test-backend:
           requires: [build-backend]
+          context: slack
       - scan-backend:
           requires: [build-backend]
+          context: slack
       - scan-frontend:
           requires: [build-frontend]
+          context: slack
+      - deploy-infrastructure:
+          requires: [test-frontend, test-backend, scan-backend, scan-frontend]
+          context: slack
+          filters:
+            branches:
+              only: [master]
