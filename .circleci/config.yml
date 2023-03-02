@@ -432,7 +432,7 @@ jobs:
             cat ~/OldWorkflowID.txt
             OldWorkflowID=$(cat ~/OldWorkflowID.txt)
             echo OldWorkflowID: "${OldWorkflowID}"
-            if [[ "${CIRCLE_WORKFLOW_ID:0:5}" != "${OldWorkflowID}" ]
+            if [[ "${CIRCLE_WORKFLOW_ID:0:5}" != "${OldWorkflowID}" ]]
             then
               echo "Deleting old stack"
               aws s3 rm "s3://udapeople-${OldWorkflowID}" --recursive
