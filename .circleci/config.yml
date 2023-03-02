@@ -30,7 +30,7 @@ commands:
           command: |
             pip3 install ansible
             
-install_nodejs:
+  install_nodejs:
     description: Install Node.js 13.8.0
     steps:
       - run:
